@@ -15,6 +15,8 @@ server/.env
 server/.env.*
 !server/.env.example
 
+server/private_uploads/
+
 # Build and test output
 dist/
 coverage/
