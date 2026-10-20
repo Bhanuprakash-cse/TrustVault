@@ -10,6 +10,13 @@ const app = express();
 
 const authRoutes = require("./routes/auth");
 
+const {
+    authenticateToken,
+    allowRoles
+} = require("./middleware/auth");
+
+const documentRoutes = require("./routes/documents");
+
 app.use(helmet());
 
 app.use(
@@ -19,6 +26,8 @@ app.use(
 );
 
 app.use(express.json({ limit: "100kb" }));
+
+app.use("/api/documents", documentRoutes);
 
 app.use("/api/auth", authRoutes);
 
@@ -46,5 +55,25 @@ app.get("/api/health", async (req, res) => {
         });
     }
 });
+
+// Protected route: any authenticated user
+app.get("/api/auth/me", authenticateToken, (req, res) => {
+    res.json({
+        message: "Authentication successful.",
+        user: req.user
+    });
+});
+
+// Admin-only test route
+app.get(
+    "/api/admin/test",
+    authenticateToken,
+    allowRoles("admin"),
+    (req, res) => {
+        res.json({
+            message: "Admin access granted."
+        });
+    }
+);
 
 module.exports = app;
