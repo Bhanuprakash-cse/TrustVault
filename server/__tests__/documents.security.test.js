@@ -36,6 +36,21 @@ describe("TrustVault document authorization", () => {
         expect(response.statusCode).toBe(403);
     });
 
+    test("unauthenticated users cannot access admin audit logs", async () => {
+        const response = await request(app)
+            .get("/api/admin/audit-logs");
+
+        expect(response.statusCode).toBe(401);
+    });
+
+    test("viewer cannot access admin audit logs", async () => {
+        const response = await request(app)
+            .get("/api/admin/audit-logs")
+            .set("Authorization", `Bearer ${viewerToken}`);
+
+        expect(response.statusCode).toBe(403);
+    });
+
     afterAll(async () => {
         await db.end();
     });

@@ -17,6 +17,8 @@ const {
 
 const documentRoutes = require("./routes/documents");
 
+const { writeAuditLog } = require("./utils/audit");
+
 app.use(helmet());
 
 app.use(
@@ -75,5 +77,49 @@ app.get(
         });
     }
 );
+
+
+ // Admin-only audit activity dashboard
+app.get(
+    "/api/admin/audit-logs",
+    authenticateToken,
+    allowRoles("admin"),
+    async (req, res) => {
+        try {
+            const limit = Math.min(
+                Math.max(Number.parseInt(req.query.limit, 10) || 20, 1),
+                100
+            );
+
+            const [logs] = await db.execute(
+                `SELECT
+                    id,
+                    actor_user_id,
+                    document_id,
+                    action,
+                    result,
+                    details,
+                    created_at
+                 FROM audit_logs
+                 ORDER BY created_at DESC
+                 LIMIT ?`,
+                [limit]
+            );
+
+            return res.status(200).json({
+                message: "Audit activity retrieved successfully.",
+                count: logs.length,
+                logs
+            });
+        } catch (error) {
+            console.error("Audit dashboard failed:", error.message);
+
+            return res.status(500).json({
+                message: "Internal server error."
+            });
+        }
+    }
+);
+
 
 module.exports = app;

@@ -243,6 +243,73 @@ router.post("/upload", handleUpload, async (req, res) => {
 
 
 
+ // GET /api/documents/search?q=report
+ // Search only documents the authenticated user can access.
+router.get("/search", async (req, res) => {
+    try {
+        const query =
+            typeof req.query.q === "string"
+                ? req.query.q.trim()
+                : "";
+
+        if (!query || query.length > 100) {
+            return res.status(400).json({
+                message: "Provide a search query between 1 and 100 characters."
+            });
+        }
+
+        const searchTerm = `%${query}%`;
+
+        const [documents] = await db.execute(
+            `SELECT
+                d.id,
+                d.owner_id,
+                d.name,
+                d.category,
+                d.mime_type,
+                d.size_bytes,
+                d.created_at,
+                d.updated_at
+             FROM documents d
+             WHERE
+                (
+                    d.owner_id = ?
+                    OR EXISTS (
+                        SELECT 1
+                        FROM document_permissions p
+                        WHERE p.document_id = d.id
+                          AND p.user_id = ?
+                    )
+                )
+                AND (
+                    d.name LIKE ?
+                    OR d.category LIKE ?
+                )
+             ORDER BY d.created_at DESC
+             LIMIT 50`,
+            [
+                req.user.id,
+                req.user.id,
+                searchTerm,
+                searchTerm
+            ]
+        );
+
+        return res.status(200).json({
+            message: "Document search completed successfully.",
+            count: documents.length,
+            documents
+        });
+    } catch (error) {
+        console.error("Document search failed:", error.message);
+
+        return res.status(500).json({
+            message: "Internal server error."
+        });
+    }
+});
+
+
  // GET document metadata
 router.get("/:id", async (req, res) => {
     try {
