@@ -19,6 +19,8 @@ const documentRoutes = require("./routes/documents");
 
 const { writeAuditLog } = require("./utils/audit");
 
+const adminRoutes = require("./routes/admin");
+
 app.use(helmet());
 
 app.use(
@@ -186,5 +188,6 @@ app.get(
     }
 );
 
+app.use("/api/admin", adminRoutes);
 
 module.exports = app;

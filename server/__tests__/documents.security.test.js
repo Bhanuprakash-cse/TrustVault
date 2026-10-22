@@ -84,6 +84,39 @@ describe("TrustVault document authorization", () => {
         expect(response.body.count).toBe(response.body.logs.length);
     });
 
+    
+test("admin failed download of a missing stored file is audited", async () => {
+    const response = await request(app)
+        .get("/api/admin/documents/1/download")
+        .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body.message).toBe("Stored file not found.");
+
+    const [logs] = await db.execute(
+        `SELECT result, details
+         FROM audit_logs
+         WHERE actor_user_id = (
+             SELECT id FROM users WHERE email = ?
+         )
+         AND document_id = 1
+         AND action = 'admin_document_download'
+         ORDER BY id DESC
+         LIMIT 1`,
+        [process.env.TEST_ADMIN_EMAIL]
+    );
+
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0].result).toBe("denied");
+
+    const details = typeof logs[0].details === "string"
+        ? JSON.parse(logs[0].details)
+        : logs[0].details;
+
+    expect(details.reason).toBe("Stored file not found");
+});
+
+
     test("admin can filter denied document downloads", async () => {
         const response = await request(app)
             .get(
