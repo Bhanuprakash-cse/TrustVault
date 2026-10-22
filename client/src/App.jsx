@@ -33,6 +33,12 @@ function App() {
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState('')
 
+  const [adminStats, setAdminStats] = useState(null)
+  const [adminDocuments, setAdminDocuments] = useState([])
+  const [adminLoading, setAdminLoading] = useState(false)
+  const [adminError, setAdminError] = useState('')
+  const [adminBusyId, setAdminBusyId] = useState(null)
+
   async function handleSubmit(event) {
     event.preventDefault()
     setMessage('')
@@ -147,11 +153,132 @@ function App() {
   }
 }
 
+
+async function loadAdminData() {
+  if (!token || user?.role !== 'admin') return
+
+  setAdminLoading(true)
+  setAdminError('')
+
+  try {
+    const headers = { Authorization: `Bearer ${token}` }
+
+    const [statsResponse, documentsResponse] = await Promise.all([
+      fetch(`${API}/admin/dashboard`, { headers }),
+      fetch(`${API}/admin/documents`, { headers }),
+    ])
+
+    if (statsResponse.status === 401 || documentsResponse.status === 401) {
+      logout()
+      throw new Error('Your session expired. Please log in again.')
+    }
+
+    const statsData = await statsResponse.json()
+    const documentsData = await documentsResponse.json()
+
+    if (!statsResponse.ok) {
+      throw new Error(statsData.message || 'Could not load dashboard.')
+    }
+
+    if (!documentsResponse.ok) {
+      throw new Error(documentsData.message || 'Could not load documents.')
+    }
+
+    setAdminStats(statsData.stats)
+    setAdminDocuments(documentsData.documents || [])
+  } catch (error) {
+    setAdminError(error.message || 'Could not load admin data.')
+  } finally {
+    setAdminLoading(false)
+  }
+}
+
+async function downloadAdminDocument(document) {
+  setAdminBusyId(document.id)
+  setAdminError('')
+
+  try {
+    const response = await fetch(
+      `${API}/admin/documents/${document.id}/download`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+
+    if (response.status === 401) {
+      logout()
+      throw new Error('Your session expired. Please log in again.')
+    }
+
+    if (!response.ok) {
+      const data = await response.json()
+      throw new Error(data.message || 'Download failed.')
+    }
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = window.document.createElement('a')
+
+    link.href = url
+    link.download = document.name || `document-${document.id}`
+    window.document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    setAdminError(error.message || 'Download failed.')
+  } finally {
+    setAdminBusyId(null)
+  }
+}
+
+async function deleteAdminDocument(document) {
+  const confirmed = window.confirm(
+    `Permanently delete "${document.name}"? This cannot be undone.`,
+  )
+
+  if (!confirmed) return
+
+  setAdminBusyId(document.id)
+  setAdminError('')
+
+  try {
+    const response = await fetch(
+      `${API}/admin/documents/${document.id}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    )
+
+    if (response.status === 401) {
+      logout()
+      throw new Error('Your session expired. Please log in again.')
+    }
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Document deletion failed.')
+    }
+
+    setMessage(`Deleted "${document.name}".`)
+    await loadAdminData()
+    await loadAuditLogs()
+  } catch (error) {
+    setAdminError(error.message || 'Document deletion failed.')
+  } finally {
+    setAdminBusyId(null)
+  }
+}
+
+
+
 useEffect(() => {
   if (user?.role === 'admin' && token) {
+    loadAdminData()
     loadAuditLogs()
   }
 }, [user, token, auditResult])
+
 
 
   async function uploadDocument(event) {
@@ -356,7 +483,125 @@ useEffect(() => {
             </section>
           </div>
 
-          
+
+{user.role === 'admin' && (
+  <>
+    <section className="admin-stats">
+      <article className="panel stat-card">
+        <span>Total users</span>
+        <h2>{adminStats?.totalUsers ?? '—'}</h2>
+      </article>
+
+      <article className="panel stat-card">
+        <span>Total documents</span>
+        <h2>{adminStats?.totalDocuments ?? '—'}</h2>
+      </article>
+
+      <article className="panel stat-card">
+        <span>Audit events</span>
+        <h2>{adminStats?.totalAuditEvents ?? '—'}</h2>
+      </article>
+
+      <article className="panel stat-card">
+        <span>Denied events</span>
+        <h2>{adminStats?.deniedEvents ?? '—'}</h2>
+      </article>
+    </section>
+
+    <section className="panel admin-panel">
+      <div className="admin-section-heading">
+        <div>
+          <h2>Document Management</h2>
+          <p className="panel-description">
+            View, download, and manage all stored documents.
+          </p>
+        </div>
+
+        <button
+          className="secondary-button"
+          disabled={adminLoading}
+          onClick={loadAdminData}
+        >
+          {adminLoading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      {adminError && (
+        <p className="dashboard-message" role="alert">
+          {adminError}
+        </p>
+      )}
+
+      {adminLoading && adminDocuments.length === 0 ? (
+        <p className="empty-state">Loading documents...</p>
+      ) : adminDocuments.length === 0 ? (
+        <p className="empty-state">No documents found.</p>
+      ) : (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Document</th>
+                <th>Owner</th>
+                <th>Size</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {adminDocuments.map((document) => (
+                <tr key={document.id}>
+                  <td>
+                    <strong>{document.name}</strong>
+                    <small>
+                      {document.category || 'Uncategorized'}
+                    </small>
+                  </td>
+
+                  <td>
+                    <span>{document.owner_name || 'Unknown'}</span>
+                    <small>{document.owner_email || '—'}</small>
+                  </td>
+
+                  <td>
+                    {document.size_bytes == null
+                      ? '—'
+                      : `${(Number(document.size_bytes) / 1024).toFixed(1)} KB`}
+                  </td>
+
+                  <td>
+                    <div className="admin-actions">
+                      <button
+                        className="secondary-button"
+                        disabled={adminBusyId !== null}
+                        onClick={() => downloadAdminDocument(document)}
+                      >
+                        {adminBusyId === document.id
+                          ? 'Working...'
+                          : 'Download'}
+                      </button>
+
+                      <button
+                        className="danger-button"
+                        disabled={adminBusyId !== null}
+                        onClick={() => deleteAdminDocument(document)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  </>
+)}
+
+
+
 {user.role === 'admin' && (
   <section className="panel admin-panel">
     <h2>Audit Activity</h2>
