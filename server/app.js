@@ -80,16 +80,75 @@ app.get(
 
 
  // Admin-only audit activity dashboard
+
+ // Admin-only audit activity dashboard
 app.get(
     "/api/admin/audit-logs",
     authenticateToken,
     allowRoles("admin"),
     async (req, res) => {
         try {
-            const limit = Math.min(
-                Math.max(Number.parseInt(req.query.limit, 10) || 20, 1),
-                100
-            );
+            const { action, result } = req.query;
+            let limit = 20;
+
+            if (req.query.limit !== undefined) {
+                const rawLimit = req.query.limit;
+
+                if (
+                    typeof rawLimit !== "string" ||
+                    !/^\d+$/.test(rawLimit) ||
+                    Number(rawLimit) < 1
+                ) {
+                    return res.status(400).json({
+                        message: "Limit must be a positive integer."
+                    });
+                }
+
+                limit = Math.min(Number(rawLimit), 100);
+            }
+
+            if (
+                action !== undefined &&
+                (
+                    typeof action !== "string" ||
+                    !/^[a-z][a-z0-9_]{0,49}$/.test(action)
+                )
+            ) {
+                return res.status(400).json({
+                    message: "Invalid action filter."
+                });
+            }
+
+            if (
+                result !== undefined &&
+                (
+                    typeof result !== "string" ||
+                    !["success", "denied"].includes(result)
+                )
+            ) {
+                return res.status(400).json({
+                    message: "Result must be success or denied."
+                });
+            }
+
+            const conditions = [];
+            const params = [];
+
+            if (action !== undefined) {
+                conditions.push("action = ?");
+                params.push(action);
+            }
+
+            if (result !== undefined) {
+                conditions.push("result = ?");
+                params.push(result);
+            }
+
+            const whereClause = conditions.length
+                ? `WHERE ${conditions.join(" AND ")}`
+                : "";
+
+            params.push(limit);
 
             const [logs] = await db.execute(
                 `SELECT
@@ -101,14 +160,20 @@ app.get(
                     details,
                     created_at
                  FROM audit_logs
-                 ORDER BY created_at DESC
+                 ${whereClause}
+                 ORDER BY created_at DESC, id DESC
                  LIMIT ?`,
-                [limit]
+                params
             );
 
             return res.status(200).json({
                 message: "Audit activity retrieved successfully.",
                 count: logs.length,
+                filters: {
+                    action: action ?? null,
+                    result: result ?? null,
+                    limit
+                },
                 logs
             });
         } catch (error) {
