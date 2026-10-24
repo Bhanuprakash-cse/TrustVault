@@ -19,12 +19,15 @@ const dbConfig = {
 if (process.env.DB_SSL === "true") {
     const caPath = path.join(__dirname, "ca.pem");
 
+    const ca = process.env.DB_SSL_CA
+        ? process.env.DB_SSL_CA.replace(/\\n/g, "\n")
+        : fs.readFileSync(caPath, "utf8");
+
     dbConfig.ssl = {
-        ca: fs.readFileSync(caPath, "utf8"),
+        ca,
         rejectUnauthorized: true
     };
 }
-
 const db = mysql.createPool(dbConfig);
 
 module.exports = db;
