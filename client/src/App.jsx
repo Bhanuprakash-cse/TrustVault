@@ -511,9 +511,24 @@ useEffect(() => {
       <main className="dashboard-page">
         <header className="topbar">
           <div className="dashboard-brand">
-            <span className="brand-icon small">TV</span>
-            <span>TrustVault</span>
-          </div>
+  <span className="brand-icon small" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      width="23"
+      height="23"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z" />
+      <rect x="9" y="10" width="6" height="5" rx="1" />
+      <path d="M10 10V8a2 2 0 0 1 4 0v2" />
+    </svg>
+  </span>
+  <span className="brand-name">TrustVault</span>
+</div>
           <div className="user-controls">
             <span>{user.name}</span>
             <span className="role-label">{user.role}</span>
@@ -604,14 +619,16 @@ useEffect(() => {
                       </span>
                     </div>
 
+
                     <button
                       type="button"
                       className="secondary-button"
-                      onClick={loadAuditLogs}
-                      disabled={auditLoading}
+                      onClick={() => downloadDocument(document)}
+                      disabled={busy}
                     >
-                      {auditLoading ? 'Loading...' : 'Refresh logs'}
+                      {busy ? 'Downloading...' : 'Download'}
                     </button>
+
 
                   </article>
                 ))}
