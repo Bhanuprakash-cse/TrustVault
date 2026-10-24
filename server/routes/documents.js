@@ -71,7 +71,7 @@ function handleUpload(req, res, next) {
 
 // Find a document and check the current user's access.
 async function getDocumentAccess(documentId, userId) {
-    
+
     const [documents] = await db.execute(
         `SELECT id, owner_id, name, category, storage_key,
                 mime_type, size_bytes, created_at, updated_at
@@ -195,6 +195,41 @@ router.post("/upload", handleUpload, async (req, res) => {
             return res.status(400).json({
                 message: "Please select a file to upload."
             });
+        }
+
+        // Verify the actual file contents before saving metadata.
+        try {
+            const { fileTypeFromFile } = await import("file-type");
+
+            let isValid = false;
+
+            if (req.file.mimetype === "text/plain") {
+                // Plain text has no universal file signature.
+                const content = await fs.promises.readFile(req.file.path);
+
+                if (!content.includes(0)) {
+                    try {
+                        new TextDecoder("utf-8", { fatal: true }).decode(content);
+                        isValid = true;
+                    } catch {
+                        isValid = false;
+                    }
+                }
+            } else {
+                const detected = await fileTypeFromFile(req.file.path);
+                isValid = detected?.mime === req.file.mimetype;
+            }
+
+            if (!isValid) {
+                await fs.promises.unlink(req.file.path).catch(() => {});
+
+                return res.status(400).json({
+                    message: "File contents do not match the allowed file type."
+                });
+            }
+        } catch (validationError) {
+            await fs.promises.unlink(req.file.path).catch(() => {});
+            throw validationError;
         }
 
         const name = (
@@ -656,7 +691,7 @@ router.post("/:id/permissions", async (req, res) => {
             }
         });
 
-        
+
 
         return res.status(200).json({
             message: "Document permission granted successfully.",
