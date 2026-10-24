@@ -746,3 +746,19 @@ button {
 .brand-name {
   white-space: nowrap;
 }
+
+.auth-card .brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: 18px;
+}
+
+.auth-card .brand-icon svg {
+  display: block;
+  width: 34px;
+  height: 34px;
+}

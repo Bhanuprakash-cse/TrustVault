@@ -961,7 +961,22 @@ useEffect(() => {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <div className="brand-icon">TV</div>
+        
+<div className="brand-icon" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z" />
+    <rect x="9" y="10" width="6" height="5" rx="1" />
+    <path d="M10 10V8a2 2 0 0 1 4 0v2" />
+  </svg>
+</div>
+
         <h1>TrustVault</h1>
         <p className="subtitle">Secure document sharing with a real audit trail.</p>
 
