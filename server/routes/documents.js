@@ -142,6 +142,51 @@ async function canManagePermissions(documentId, user) {
 // Owner, read permission, or edit permission can view metadata.
 
 
+
+ // GET /api/documents
+ // List documents owned by the current user or shared with them.
+router.get("/", async (req, res) => {
+    try {
+        const [documents] = await db.execute(
+            `SELECT
+                d.id,
+                d.owner_id,
+                d.name,
+                d.category,
+                d.mime_type,
+                d.size_bytes,
+                d.created_at,
+                d.updated_at
+             FROM documents d
+             WHERE
+                d.owner_id = ?
+                OR EXISTS (
+                    SELECT 1
+                    FROM document_permissions p
+                    WHERE p.document_id = d.id
+                      AND p.user_id = ?
+                )
+             ORDER BY d.created_at DESC
+             LIMIT 100`,
+            [req.user.id, req.user.id]
+        );
+
+        return res.status(200).json({
+            message: "Documents loaded successfully.",
+            count: documents.length,
+            documents
+        });
+    } catch (error) {
+        console.error("Document listing failed:", error.message);
+
+        return res.status(500).json({
+            message: "Could not load documents."
+        });
+    }
+});
+
+
+
 router.post("/upload", handleUpload, async (req, res) => {
     let documentId = null;
 
@@ -559,7 +604,7 @@ router.post("/:id/permissions", async (req, res) => {
         }
 
         const [users] = await db.execute(
-            "SELECT id FROM users WHERE id = ?",
+            "SELECT id, role FROM users WHERE id = ?",
             [userId]
         );
 
@@ -568,6 +613,13 @@ router.post("/:id/permissions", async (req, res) => {
                 message: "Target user not found."
             });
         }
+
+        if (users[0].role !== "viewer") {
+            return res.status(400).json({
+                message: "Document access can only be granted to viewer accounts."
+            });
+        }
+
 
         // Avoid redundant permission records for the owner.
         if (String(access.document.owner_id) === String(userId)) {
@@ -593,15 +645,15 @@ router.post("/:id/permissions", async (req, res) => {
             ]
         );
 
-        await writeAuditLog({
+                await writeAuditLog({
             actorUserId: req.user.id,
             documentId: access.document.id,
             action: "permission_grant",
             result: "success",
-        details: {
-            targetUserId: userId,
-            permission
-        }
+            details: {
+                targetUserId: userId,
+                permission
+            }
         });
 
         
@@ -661,15 +713,15 @@ router.delete("/:id/permissions/:userId", async (req, res) => {
             });
         }
 
-        await writeAuditLog({
+                await writeAuditLog({
             actorUserId: req.user.id,
             documentId: access.document.id,
             action: "permission_revoke",
             result: "success",
-        details: {
-            targetUserId: userId
-    }
-});
+            details: {
+                targetUserId: userId
+            }
+        });
 
         return res.json({
             message: "Document permission revoked successfully.",

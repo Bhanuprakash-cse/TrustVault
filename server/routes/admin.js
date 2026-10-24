@@ -346,4 +346,82 @@ router.delete("/documents/:id", async (req, res) => {
     }
 });
 
+
+/* 6. List viewer accounts for access assignment */
+router.get("/viewers", async (req, res) => {
+    try {
+        const [viewers] = await db.execute(
+            `SELECT id, name, email
+             FROM users
+             WHERE role = 'viewer'
+             ORDER BY name ASC`
+        );
+
+        return res.status(200).json({
+            message: "Viewers retrieved successfully.",
+            count: viewers.length,
+            viewers
+        });
+    } catch (error) {
+        console.error("Admin viewers error:", error.message);
+        return res.status(500).json({
+            message: "Internal server error."
+        });
+    }
+});
+
+/* 7. View permissions assigned to a document */
+router.get("/documents/:id/permissions", async (req, res) => {
+    try {
+        const documentId = Number(req.params.id);
+
+        if (!Number.isSafeInteger(documentId) || documentId <= 0) {
+            return res.status(400).json({
+                message: "Invalid document ID."
+            });
+        }
+
+        const [documents] = await db.execute(
+            "SELECT id, name, owner_id FROM documents WHERE id = ?",
+            [documentId]
+        );
+
+        if (documents.length === 0) {
+            return res.status(404).json({
+                message: "Document not found."
+            });
+        }
+
+        const [permissions] = await db.execute(
+            `SELECT
+                p.user_id,
+                p.permission,
+                p.granted_by,
+                p.created_at,
+                u.name AS viewer_name,
+                u.email AS viewer_email
+             FROM document_permissions p
+             JOIN users u ON u.id = p.user_id
+             WHERE p.document_id = ?
+             ORDER BY u.name ASC`,
+            [documentId]
+        );
+
+        return res.status(200).json({
+            message: "Document permissions retrieved successfully.",
+            document: documents[0],
+            count: permissions.length,
+            permissions
+        });
+    } catch (error) {
+        console.error("Admin permissions error:", error.message);
+        return res.status(500).json({
+            message: "Internal server error."
+        });
+    }
+});
+
+
+
+
 module.exports = router;

@@ -1,4 +1,4 @@
-
+﻿
 import { useEffect, useState } from 'react'
 import './App.css'
 
@@ -38,6 +38,13 @@ function App() {
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState('')
   const [adminBusyId, setAdminBusyId] = useState(null)
+  const [viewers, setViewers] = useState([])
+  const [sharingDocumentId, setSharingDocumentId] = useState(null)
+  const [documentPermissions, setDocumentPermissions] = useState([])
+  const [selectedViewerId, setSelectedViewerId] = useState('')
+  const [selectedPermission, setSelectedPermission] = useState('read')
+  const [sharingBusy, setSharingBusy] = useState(false)
+  const [sharingError, setSharingError] = useState('')
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -76,42 +83,46 @@ function App() {
     }
   }
 
-  async function loadDocuments(query = '') {
-    if (!token) return
 
-    setBusy(true)
-    setMessage('')
+async function loadDocuments(query = '') {
+  if (!token) return
 
-    try {
-      const endpoint = query.trim()
-        ? `/documents/search?q=${encodeURIComponent(query.trim())}`
-        : null
+  setBusy(true)
+  setMessage('')
 
-      if (!endpoint) {
-        setDocuments([])
-        setMessage('Enter a search term to find your documents.')
-        return
-      }
+  try {
+    const trimmedQuery = query.trim()
+    const endpoint = trimmedQuery
+      ? `/documents/search?q=${encodeURIComponent(trimmedQuery)}`
+      : '/documents'
 
-      const response = await fetch(`${API}${endpoint}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await response.json()
+    const response = await fetch(`${API}${endpoint}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await response.json()
 
-      if (response.status === 401) {
-        logout()
-        throw new Error('Your session expired. Please log in again.')
-      }
-      if (!response.ok) throw new Error(data.message || 'Search failed.')
-
-      setDocuments(data.documents || [])
-      setMessage(`${data.count ?? 0} document(s) found.`)
-    } catch (error) {
-      setMessage(error.message || 'Could not load documents.')
-    } finally {
-      setBusy(false)
+    if (response.status === 401) {
+      logout()
+      throw new Error('Your session expired. Please log in again.')
     }
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Could not load documents.')
+    }
+
+    setDocuments(data.documents || [])
+    setMessage(
+      trimmedQuery
+        ? `${data.count ?? 0} document(s) found.`
+        : `${data.count ?? 0} document(s) available.`
+    )
+  } catch (error) {
+    setMessage(error.message || 'Could not load documents.')
+  } finally {
+    setBusy(false)
   }
+}
+
 
 
   async function loadAuditLogs() {
@@ -272,12 +283,140 @@ async function deleteAdminDocument(document) {
 
 
 
+async function loadViewers() {
+  setSharingError('')
+
+  try {
+    const response = await fetch(`${API}/admin/viewers`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Could not load viewers.')
+    }
+
+    setViewers(data.viewers || [])
+  } catch (error) {
+    setSharingError(error.message || 'Could not load viewers.')
+  }
+}
+
+async function loadDocumentPermissions(documentId) {
+  setSharingDocumentId(documentId)
+  setDocumentPermissions([])
+  setSelectedViewerId('')
+  setSelectedPermission('read')
+  setSharingError('')
+  setSharingBusy(true)
+
+  try {
+    const response = await fetch(
+      `${API}/admin/documents/${documentId}/permissions`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Could not load permissions.')
+    }
+
+    setDocumentPermissions(data.permissions || [])
+    await loadViewers()
+  } catch (error) {
+    setSharingError(error.message || 'Could not load permissions.')
+  } finally {
+    setSharingBusy(false)
+  }
+}
+
+async function grantDocumentPermission(event) {
+  event.preventDefault()
+
+  if (!sharingDocumentId || !selectedViewerId) {
+    setSharingError('Please select a viewer.')
+    return
+  }
+
+  setSharingBusy(true)
+  setSharingError('')
+
+  try {
+    const response = await fetch(
+      `${API}/documents/${sharingDocumentId}/permissions`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: Number(selectedViewerId),
+          permission: selectedPermission,
+        }),
+      },
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Could not grant permission.')
+    }
+
+    setMessage('Document permission saved successfully.')
+    await loadDocumentPermissions(sharingDocumentId)
+  } catch (error) {
+    setSharingError(error.message || 'Could not grant permission.')
+  } finally {
+    setSharingBusy(false)
+  }
+}
+
+async function revokeDocumentPermission(userId) {
+  if (!sharingDocumentId) return
+
+  if (!window.confirm('Revoke this viewerâ€™s document access?')) return
+
+  setSharingBusy(true)
+  setSharingError('')
+
+  try {
+    const response = await fetch(
+      `${API}/documents/${sharingDocumentId}/permissions/${userId}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Could not revoke permission.')
+    }
+
+    setMessage('Document access revoked successfully.')
+    await loadDocumentPermissions(sharingDocumentId)
+  } catch (error) {
+    setSharingError(error.message || 'Could not revoke permission.')
+  } finally {
+    setSharingBusy(false)
+  }
+}
+
+
+
 useEffect(() => {
-  if (user?.role === 'admin' && token) {
+  if (!token || !user) return
+
+  if (user.role === 'admin') {
     loadAdminData()
     loadAuditLogs()
+  } else {
+    loadDocuments()
   }
-}, [user, token, auditResult])
+}, [user, token])
+
 
 
 
@@ -315,7 +454,7 @@ useEffect(() => {
       setDocumentName('')
       setCategory('')
       event.target.reset()
-      if (search.trim()) await loadDocuments(search)
+      await loadDocuments(search)
     } catch (error) {
       setMessage(error.message || 'Upload failed.')
     } finally {
@@ -396,7 +535,7 @@ useEffect(() => {
           <div className="dashboard-grid">
             <section className="panel">
               <h2>Upload a document</h2>
-              <p className="panel-description">PDF, TXT, JPEG, or PNG · Max 5 MB</p>
+              <p className="panel-description">PDF, TXT, JPEG, or PNG Â· Max 5 MB</p>
               <form className="upload-form" onSubmit={uploadDocument}>
                 <label>
                   Document file
@@ -448,7 +587,6 @@ useEffect(() => {
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search documents..."
                   maxLength={100}
-                  required
                 />
                 <button className="primary-button" disabled={busy} type="submit">
                   Search
@@ -461,17 +599,20 @@ useEffect(() => {
                     <div className="document-info">
                       <strong>{document.name}</strong>
                       <span>
-                        {document.category || 'Uncategorized'} ·{' '}
+                        {document.category || 'Uncategorized'} Â·{' '}
                         {document.mime_type || 'File'}
                       </span>
                     </div>
+
                     <button
+                      type="button"
                       className="secondary-button"
-                      disabled={busy}
-                      onClick={() => downloadDocument(document)}
+                      onClick={loadAuditLogs}
+                      disabled={auditLoading}
                     >
-                      Download
+                      {auditLoading ? 'Loading...' : 'Refresh logs'}
                     </button>
+
                   </article>
                 ))}
                 {documents.length === 0 && (
@@ -489,22 +630,22 @@ useEffect(() => {
     <section className="admin-stats">
       <article className="panel stat-card">
         <span>Total users</span>
-        <h2>{adminStats?.totalUsers ?? '—'}</h2>
+        <h2>{adminStats?.totalUsers ?? 'â€”'}</h2>
       </article>
 
       <article className="panel stat-card">
         <span>Total documents</span>
-        <h2>{adminStats?.totalDocuments ?? '—'}</h2>
+        <h2>{adminStats?.totalDocuments ?? 'â€”'}</h2>
       </article>
 
       <article className="panel stat-card">
         <span>Audit events</span>
-        <h2>{adminStats?.totalAuditEvents ?? '—'}</h2>
+        <h2>{adminStats?.totalAuditEvents ?? 'â€”'}</h2>
       </article>
 
       <article className="panel stat-card">
         <span>Denied events</span>
-        <h2>{adminStats?.deniedEvents ?? '—'}</h2>
+        <h2>{adminStats?.deniedEvents ?? 'â€”'}</h2>
       </article>
     </section>
 
@@ -560,12 +701,12 @@ useEffect(() => {
 
                   <td>
                     <span>{document.owner_name || 'Unknown'}</span>
-                    <small>{document.owner_email || '—'}</small>
+                    <small>{document.owner_email || 'â€”'}</small>
                   </td>
 
                   <td>
                     {document.size_bytes == null
-                      ? '—'
+                      ? 'â€”'
                       : `${(Number(document.size_bytes) / 1024).toFixed(1)} KB`}
                   </td>
 
@@ -588,6 +729,13 @@ useEffect(() => {
                       >
                         Delete
                       </button>
+                      <button
+                      className="secondary-button"
+                      disabled={adminBusyId !== null || sharingBusy}
+                      onClick={() => loadDocumentPermissions(document.id)}
+                    >
+                      Share / Permissions
+                    </button>
                     </div>
                   </td>
                 </tr>
@@ -597,6 +745,101 @@ useEffect(() => {
         </div>
       )}
     </section>
+
+{sharingDocumentId !== null && (
+  <section className="panel admin-panel">
+    <div className="admin-section-heading">
+      <div>
+        <h2>Document Sharing</h2>
+        <p className="panel-description">
+          Manage viewer access for document ID {sharingDocumentId}.
+        </p>
+      </div>
+
+      <button
+        className="secondary-button"
+        onClick={() => setSharingDocumentId(null)}
+      >
+        Close
+      </button>
+    </div>
+
+    {sharingError && (
+      <p className="dashboard-message" role="alert">
+        {sharingError}
+      </p>
+    )}
+
+    <form className="upload-form" onSubmit={grantDocumentPermission}>
+      <label>
+        Viewer account
+        <select
+          value={selectedViewerId}
+          onChange={(event) => setSelectedViewerId(event.target.value)}
+          required
+        >
+          <option value="">Select a viewer</option>
+          {viewers.map((viewer) => (
+            <option key={viewer.id} value={viewer.id}>
+              {viewer.name} â€” {viewer.email}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label>
+        Permission level
+        <select
+          value={selectedPermission}
+          onChange={(event) => setSelectedPermission(event.target.value)}
+        >
+          <option value="read">Read</option>
+          <option value="edit">Edit</option>
+        </select>
+      </label>
+
+      <button
+        className="primary-button"
+        type="submit"
+        disabled={sharingBusy}
+      >
+        {sharingBusy ? 'Please wait...' : 'Grant / Update Access'}
+      </button>
+    </form>
+
+    <h3>Current permissions</h3>
+
+    {sharingBusy ? (
+      <p className="empty-state">Loading permissions...</p>
+    ) : documentPermissions.length === 0 ? (
+      <p className="empty-state">No viewers currently have access.</p>
+    ) : (
+      <div className="document-list">
+        {documentPermissions.map((permission) => (
+          <article
+            className="document-item"
+            key={permission.user_id}
+          >
+            <div className="document-info">
+              <strong>{permission.viewer_name}</strong>
+              <span>{permission.viewer_email}</span>
+              <span>Permission: {permission.permission}</span>
+            </div>
+
+            <button
+              className="danger-button"
+              disabled={sharingBusy}
+              onClick={() => revokeDocumentPermission(permission.user_id)}
+            >
+              Revoke
+            </button>
+          </article>
+        ))}
+      </div>
+    )}
+  </section>
+)}
+
   </>
 )}
 
@@ -662,7 +905,7 @@ useEffect(() => {
 
           <p>
             User ID: {log.actor_user_id ?? 'N/A'}
-            {' · '}
+            {' Â· '}
             Document ID: {log.document_id ?? 'N/A'}
           </p>
 
@@ -691,7 +934,7 @@ useEffect(() => {
 
 
           <p className="footer-note">
-            TrustVault · Access-controlled documents · Audit trail enabled
+            TrustVault Â· Access-controlled documents Â· Audit trail enabled
           </p>
         </section>
       </main>
@@ -764,7 +1007,7 @@ useEffect(() => {
             {loading ? 'Please wait...' : mode === 'login' ? 'Sign in securely' : 'Create account'}
           </button>
         </form>
-        <p className="security-note">🔒 Your documents are protected by authenticated access.</p>
+        <p className="security-note">ðŸ”’ Your documents are protected by authenticated access.</p>
       </section>
     </main>
   )

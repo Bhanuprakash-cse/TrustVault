@@ -164,4 +164,111 @@ test("admin failed download of a missing stored file is audited", async () => {
     afterAll(async () => {
         await db.end();
     });
+
+        describe("Document permission management", () => {
+        const documentId = 5;
+        const targetUserId = 2;
+
+        afterEach(async () => {
+            // Keep this test document's permission state clean.
+            await db.execute(
+                `DELETE FROM document_permissions
+                 WHERE document_id = ? AND user_id = ?`,
+                [documentId, targetUserId]
+            );
+        });
+
+        test("admin can grant read permission to a viewer", async () => {
+            const response = await request(app)
+                .post(`/api/documents/${documentId}/permissions`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .send({
+                    userId: targetUserId,
+                    permission: "read"
+                });
+
+            expect(response.statusCode).toBe(200);
+            expect(response.body.permission).toBe("read");
+
+            const [rows] = await db.execute(
+                `SELECT permission FROM document_permissions
+                 WHERE document_id = ? AND user_id = ?`,
+                [documentId, targetUserId]
+            );
+
+            expect(rows).toHaveLength(1);
+            expect(rows[0].permission).toBe("read");
+        });
+
+        test("admin can update read permission to edit", async () => {
+            await db.execute(
+                `INSERT INTO document_permissions
+                    (document_id, user_id, permission, granted_by)
+                 VALUES (?, ?, 'read', ?)
+                 ON DUPLICATE KEY UPDATE permission = 'read'`,
+                [documentId, targetUserId, 3]
+            );
+
+            const response = await request(app)
+                .post(`/api/documents/${documentId}/permissions`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .send({
+                    userId: targetUserId,
+                    permission: "edit"
+                });
+
+            expect(response.statusCode).toBe(200);
+            expect(response.body.permission).toBe("edit");
+        });
+
+        test("admin can revoke a viewer's permission", async () => {
+            await db.execute(
+                `INSERT INTO document_permissions
+                    (document_id, user_id, permission, granted_by)
+                 VALUES (?, ?, 'read', ?)
+                 ON DUPLICATE KEY UPDATE permission = 'read'`,
+                [documentId, targetUserId, 3]
+            );
+
+            const response = await request(app)
+                .delete(
+                    `/api/documents/${documentId}/permissions/${targetUserId}`
+                )
+                .set("Authorization", `Bearer ${adminToken}`);
+
+            expect(response.statusCode).toBe(200);
+
+            const [rows] = await db.execute(
+                `SELECT id FROM document_permissions
+                 WHERE document_id = ? AND user_id = ?`,
+                [documentId, targetUserId]
+            );
+
+            expect(rows).toHaveLength(0);
+        });
+
+        test("viewer cannot grant permissions", async () => {
+            const response = await request(app)
+                .post(`/api/documents/${documentId}/permissions`)
+                .set("Authorization", `Bearer ${viewerToken}`)
+                .send({
+                    userId: targetUserId,
+                    permission: "read"
+                });
+
+            expect(response.statusCode).toBe(403);
+        });
+
+        test("admin cannot grant document permission to another admin", async () => {
+            const response = await request(app)
+                .post(`/api/documents/${documentId}/permissions`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .send({
+                    userId: 3,
+                    permission: "read"
+                });
+
+            expect(response.statusCode).toBe(400);
+        });
+    });
 });
