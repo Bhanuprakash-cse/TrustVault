@@ -190,4 +190,24 @@ app.get(
 
 app.use("/api/admin", adminRoutes);
 
+// Serve the React production build
+const path = require("path");
+
+const clientDistPath = path.join(__dirname, "..", "client", "dist");
+
+app.use(express.static(clientDistPath));
+
+// React SPA fallback for non-API routes (Express 5)
+app.get("/{*path}", (req, res, next) => {
+    if (req.path.startsWith("/api/") || req.path === "/api") {
+        return next();
+    }
+
+    res.sendFile(path.join(clientDistPath, "index.html"), (err) => {
+        if (err) {
+            next(err);
+        }
+    });
+});
+
 module.exports = app;
