@@ -2,11 +2,30 @@
 const request = require("supertest");
 const app = require("../app");
 const db = require("../db");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 
 describe("TrustVault document authorization", () => {
     let viewerToken;
     let adminToken;
 
+        const PRIVATE_DIR = path.join(
+        __dirname,
+        "..",
+        "private_uploads"
+    );
+
+    const temporaryFiles = [];
+
+    async function createTemporaryFile(name, content) {
+        const filePath = path.join(os.tmpdir(), name);
+
+        await fs.promises.writeFile(filePath, content);
+        temporaryFiles.push(filePath);
+
+        return filePath;
+    }
     beforeAll(async () => {
         const viewerLogin = await request(app)
             .post("/api/auth/login")
@@ -84,7 +103,96 @@ describe("TrustVault document authorization", () => {
         expect(response.body.count).toBe(response.body.logs.length);
     });
 
-    
+
+    test("rejects a text file disguised as a PDF", async () => {
+        const filePath = await createTemporaryFile(
+            `fake-${Date.now()}.pdf`,
+            "This is not a real PDF file."
+        );
+
+        const response = await request(app)
+            .post("/api/documents/upload")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .attach("file", filePath)
+            .field("name", "Fake PDF test");
+
+        expect(response.statusCode).toBe(400);
+        expect(response.body.message).toBe(
+            "File contents do not match the allowed file type."
+        );
+    });
+
+    test("rejects an invalid PNG file", async () => {
+        const filePath = await createTemporaryFile(
+            `fake-${Date.now()}.png`,
+            "This is not a real PNG file."
+        );
+
+        const response = await request(app)
+            .post("/api/documents/upload")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .attach("file", filePath, {
+                filename: "fake.png",
+                contentType: "image/png"
+            });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.body.message).toBe(
+            "File contents do not match the allowed file type."
+        );
+    });
+
+    test("accepts a valid UTF-8 text file", async () => {
+        const filePath = await createTemporaryFile(
+            `valid-${Date.now()}.txt`,
+            "TrustVault security test: valid UTF-8 text."
+        );
+
+        const response = await request(app)
+            .post("/api/documents/upload")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .attach("file", filePath, {
+                filename: "valid.txt",
+                contentType: "text/plain"
+            })
+            .field("name", "Automated upload test");
+
+        expect(response.statusCode).toBe(201);
+        expect(response.body.document.mime_type).toBe("text/plain");
+
+        const documentId = response.body.document.id;
+
+        // Remove the test document and its stored file.
+        const [rows] = await db.execute(
+            "SELECT storage_key FROM documents WHERE id = ?",
+            [documentId]
+        );
+
+        if (rows.length > 0) {
+            await db.execute(
+                "DELETE FROM audit_logs WHERE document_id = ?",
+                [documentId]
+            );
+
+            await db.execute(
+                "DELETE FROM documents WHERE id = ?",
+                [documentId]
+            );
+
+            await fs.promises.unlink(
+                path.join(PRIVATE_DIR, rows[0].storage_key)
+            ).catch(() => {});
+        }
+    });
+
+    afterEach(async () => {
+        for (const filePath of temporaryFiles.splice(0)) {
+            await fs.promises.unlink(filePath).catch(() => {});
+        }
+    });
+
+
+
 test("admin failed download of a missing stored file is audited", async () => {
     const response = await request(app)
         .get("/api/admin/documents/1/download")
